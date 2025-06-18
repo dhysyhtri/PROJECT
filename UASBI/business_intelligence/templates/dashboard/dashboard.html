@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f6f9;
+        }
+
+        h2 {
+            font-size: 16px;
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            align-items: start;
+        }
+
+        .card {
+            background-color: #fff;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .card.full-width {
+            grid-column: span 2;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 250px !important;
+        }
+
+        .kpi {
+            font-size: 32px;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .kpi-label {
+            font-size: 14px;
+            color: #555;
+        }
+
+        .card canvas {
+            height: 400px !important;
+        }
+
+        @media (max-width: 768px) {
+            .card canvas {
+                height: 300px !important;
+            }
+        }
+
+        .card canvas#purchaseTrendChart{
+            height: 500px !important;
+        }
+
+    </style>
+</head>
+<body>
+
+<h1>Customer Analytics Dashboard</h1>
+
+<div class="dashboard">
+    <div class="card">
+        <h2>Distribusi Pelanggan per Wilayah dan Target</h2>
+        <canvas id="regionGenderChart"></canvas>
+    </div>
+
+    <div class="card">
+        <h2>Distribusi Customer Target vs Non-Target</h2>
+        <canvas id="targetPieChart"></canvas>
+    </div>
+
+    <div class="card">
+        <h2>Sebaran Spending Score per Target</h2>
+        <canvas id="spendingHistogram"></canvas>
+    </div>
+
+    <div class="card">
+        <h2>Rata-rata Frekuensi Belanja Online</h2>
+        <canvas id="avgShoppingFrequency"></canvas>
+    </div>
+
+    <div class="card full-width">
+        <h2>Prediksi Frekuensi Belanja Online</h2>
+        <canvas id="purchaseTrendChart"></canvas>
+    </div>
+</div>
+
+<script>
+try {
+    const distRegionTarget = JSON.parse('{{ dist_region_target|default:"[]"|escapejs }}');
+    const spendingData = JSON.parse('{{ spending_distribution|escapejs }}');
+    const avgFreq = JSON.parse('{{ avg_freq_by_target|escapejs }}');
+    const targetPie = JSON.parse('{{ target_dist_data|escapejs }}');
+    const trendData = JSON.parse('{{ trend_data|default:"{}"|escapejs }}');
+    const incomeDist = JSON.parse('{{ income_distribution|default:"{}"|escapejs }}');
+
+    // Chart 1 - Distribusi pelanggan per wilayah dan target
+    if (distRegionTarget.length === 0) {
+        document.getElementById("regionGenderChart").outerHTML = "<p><i>Data tidak tersedia untuk Chart 1.</i></p>";
+    } else {
+        const grouped = {};
+        distRegionTarget.forEach(d => {
+            const region = d.Region;
+            const target = d.target_flag ? "Target" : "Non-Target";
+            if (!grouped[region]) grouped[region] = {};
+            grouped[region][target] = d.count;
+        });
+
+        const labels1 = Object.keys(grouped);
+        const targets = ["Target", "Non-Target"];
+        const datasets1 = targets.map((target, index) => ({
+            label: target,
+            data: labels1.map(region => grouped[region][target] || 0),
+            backgroundColor: index === 0 ? 'rgba(255, 99, 132, 0.7)' : 'rgba(201, 203, 207, 0.7)'
+        }));
+
+        new Chart(document.getElementById('regionGenderChart'), {
+            type: 'bar',
+            data: { labels: labels1, datasets: datasets1 },
+            options: {
+                responsive: true,
+                plugins: { legend: { position: 'top' } },
+                scales: {
+                    x: { title: { display: true, text: 'Region' } },
+                    y: { title: { display: true, text: 'Jumlah Pelanggan' }, beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    // Chart 2 - Distribusi Customer Target vs Non-Target
+    const spendingLabels = [...Array(11).keys()].map(i => i * 10);
+
+    function binScores(scores) {
+        const bins = Array(spendingLabels.length).fill(0);
+        scores.forEach(score => {
+            const idx = Math.min(Math.floor(score / 10), 10);
+            bins[idx]++;
+        });
+        return bins;
+    }
+
+    new Chart(document.getElementById('spendingHistogram'), {
+        type: 'bar',
+        data: {
+            labels: spendingLabels.map(x => `${x}-${x + 9}`),
+            datasets: [
+                {
+                    label: 'Non Target (0)',
+                    data: binScores(spendingData[0]),
+                    backgroundColor: 'rgba(255, 99, 132, 0.5)'
+                },
+                {
+                    label: 'Target (1)',
+                    data: binScores(spendingData[1]),
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                x: { title: { display: true, text: 'Spending Score Range' } },
+                y: { title: { display: true, text: 'Jumlah Pelanggan' } }
+            }
+        }
+    });
+
+    // Chart 3 - Sebaran Spending Score per Target
+    new Chart(document.getElementById('avgShoppingFrequency'), {
+        type: 'bar',
+        data: {
+            labels: ['Non Target (0)', 'Target (1)'],
+            datasets: [{
+                label: 'Rata-rata Frekuensi Belanja Online',
+                data: [avgFreq["0"], avgFreq["1"]],
+                backgroundColor: ['rgba(255, 99, 132, 0.7)', 'rgba(201, 203, 207, 0.7)']
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: { beginAtZero: true, max: 3 },
+                x: { title: { display: true, text: 'Target Flag' } }
+            }
+        }
+    });
+
+    // Chart 4 - Rata-rata Frekuensi Belanja Online
+    new Chart(document.getElementById('targetPieChart'), {
+        type: 'pie',
+        data: {
+            labels: targetPie.labels,
+            datasets: [{
+                data: targetPie.counts,
+                backgroundColor: ['#FF6384', '#36A2EB']
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top' },
+                title: {
+                    display: true,
+                }
+            }
+        }
+    });
+
+    // Chart 5 - Trend
+    new Chart(document.getElementById('purchaseTrendChart'), {
+        type: 'line',
+        data: {
+            labels: trendData.labels,
+            datasets: [
+                {
+                    label: "Actual Frequency",
+                    data: trendData.actual,
+                    borderColor: 'blue',
+                    backgroundColor: 'rgba(54, 162, 235, 0.3)',
+                    tension: 0.3
+                },
+                {
+                    label: "Predicted Trend",
+                    data: trendData.predicted,
+                    borderColor: 'red',
+                    borderDash: [5, 5],
+                    fill: false,
+                    tension: 0.3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top' }
+            }
+        }
+    });
+
+} catch (err) {
+    document.body.innerHTML += `<p style="color:red;">❌ Error parsing data: ${err.message}</p>`;
+}
+</script>
+
+</body>
+</html>
